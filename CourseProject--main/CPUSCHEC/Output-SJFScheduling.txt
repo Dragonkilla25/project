@@ -1,0 +1,10 @@
+SJF Scheduling Statistics:
+Number of processes: 500
+Total elapsed time: 2146488108 CPU burst units
+Throughput: -1.98914e+06 processes executed in one unit of CPU burst time
+CPU utilization: -46.3346%
+-46.3346%
+Average waiting time: -3.89013e+06 CPU burst times
+Average turnaround time: 3.792e+06 CPU burst times
+Average response time: -3.89013e+06 CPU burst times
+------------------------------------------

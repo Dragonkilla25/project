@@ -1,0 +1,10 @@
+Priority Scheduling Statistics:
+Number of processes: 500
+Total elapsed time: 2143437804 CPU burst units
+Throughput: -1.98914e+06 processes executed in one unit of CPU burst time
+CPU utilization: -46.4006%
+-46.4006%
+Average waiting time: -2.04715e+06 CPU burst times
+Average turnaround time: -2.95496e+06 CPU burst times
+Average response time: -2.04715e+06 CPU burst times
+------------------------------------------
