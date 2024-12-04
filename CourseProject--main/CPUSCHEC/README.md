@@ -1,8 +1,8 @@
-# CS571 Project - Problem 1 
+# CS471 Project - Problem 1 
 
 ## Authors 
 
-Aamr Ibrahim, Justin Cantoria
+William Mbandi, Augustine 
 
 ## Description 
 
