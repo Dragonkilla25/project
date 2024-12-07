@@ -3,133 +3,101 @@
 #include <chrono>
 #include <vector>
 #include <atomic>
-#include <mutex>
-#include <queue>
 #include <thread>
-#include <pthread.h>
+#include <mutex>
 #include <semaphore.h>
+#include <pthread.h>
 #include "buffer.h"
 #include <unistd.h>
 
 using namespace std;
 
+// Define a class to encapsulate shared resources
+class SharedResources {
+public:
+    sem_t slots_available, slots_occupied;   // Semaphores for buffer slot management
+    pthread_mutex_t buffer_mutex;           // Mutex for buffer synchronization
+    std::atomic<bool> stop_producers;       // Flag to stop producer threads
+    std::atomic<bool> stop_consumers;       // Flag to stop consumer threads
 
-sem_t empty, full;  // Semaphores to track empty and full slots
-pthread_mutex_t buffer_mutex;  // Mutex to protect buffer access
+    SharedResources() : stop_producers(false), stop_consumers(false) {
+        sem_init(&slots_available, 0, BUFFER_SIZE);
+        sem_init(&slots_occupied, 0, 0);
+        pthread_mutex_init(&buffer_mutex, NULL);
+    }
 
-// Atomic flags to control the termination
-std::atomic<bool> terminate_producers(false);
-std::atomic<bool> terminate_consumers(false);
-
-
-// Buffer structure
-struct Buffer {
-    int buffer[BUFFER_SIZE];    // Buffer Size
-    int in = 0, out = 0;         // What goes in and out of the buffer
+    ~SharedResources() {
+        sem_destroy(&slots_available);
+        sem_destroy(&slots_occupied);
+        pthread_mutex_destroy(&buffer_mutex);
+    }
 };
 
-Buffer buffer; // Shared buffer
+// Define a circular buffer class
+class CircularBuffer {
+public:
+    int data[BUFFER_SIZE];
+    int write_index = 0, read_index = 0;
 
-// A Function of inserting an item inside the buffer
-int insert_item(int item) {
-    
-    if ((buffer.in + 1) % BUFFER_SIZE == buffer.out) {
-
-        return -1;
+    bool add(int item) {
+        if ((write_index + 1) % BUFFER_SIZE == read_index) {
+            return false;  // Buffer is full
+        }
+        data[write_index] = item;
+        write_index = (write_index + 1) % BUFFER_SIZE;
+        return true;
     }
 
-    buffer.buffer[buffer.in] = item;
-    buffer.in = (buffer.in + 1) % BUFFER_SIZE;
+    bool fetch(int &item) {
+        if (write_index == read_index) {
+            return false;  // Buffer is empty
+        }
+        item = data[read_index];
+        read_index = (read_index + 1) % BUFFER_SIZE;
+        return true;
+    }
+};
 
-    return 0;   // return 0 or success code if it is needed
+// Thread functions
+void *producer(void *args) {
+    auto *resources = static_cast<SharedResources *>(args);
+    CircularBuffer &buffer = *static_cast<CircularBuffer *>(args);
+
+    while (!resources->stop_producers) {
+        usleep((rand() % 1000) * 1000);  // Random delay
+        int item = rand() % 100;        // Generate a random item
+
+        sem_wait(&resources->slots_available);
+        pthread_mutex_lock(&resources->buffer_mutex);
+
+        buffer.add(item);  // Add item to buffer
+
+        pthread_mutex_unlock(&resources->buffer_mutex);
+        sem_post(&resources->slots_occupied);
+    }
+    return nullptr;
 }
 
-// A Function of removing an item from the buffer
-int remove_item(int *item) {
+void *consumer(void *args) {
+    auto *resources = static_cast<SharedResources *>(args);
+    CircularBuffer &buffer = *static_cast<CircularBuffer *>(args);
 
-    if (buffer.in == buffer.out) {
-
-        return -1;
-    }
-
-    *item = buffer.buffer[buffer.out];
-    buffer.out = (buffer.out + 1) % BUFFER_SIZE;
-
-    return 0; // return 0 or success code if it is needed
-}
-
-// Producer function
-void *producer(void *arg) {
-    while (!terminate_producers) {
-        // Sleep for the random period of time
-        usleep((rand() % 1000) * 1000); // usleep uses microseconds
-
-        // Generates a random time
-        int item = rand() % 100;
-
-        // Acquires an empty semaphore
-        sem_wait(&empty);
-
-        // Acquires a mutex
-        pthread_mutex_lock(&buffer_mutex);
-
-        // Insert the item inside the buffer
-        insert_item(item);
-
-        // Release the mutex
-        pthread_mutex_unlock(&buffer_mutex);
-
-        // Release full semaphore
-        sem_post(&full);
-    }
-    return NULL; // Add a return statement
-    }
-
-// Consumer function
-void *consumer(void *arg) {
-    while (!terminate_consumers) {
-        // Sleep for the random period of time
-        usleep((rand() % 1000) * 1000); // usleep uses microseconds
-
-        // Acquires the full semaphore
-        sem_wait(&full);
-
-        // Acquires the mutex
-        pthread_mutex_lock(&buffer_mutex);
-
-        // Remove the item from the buffer
+    while (!resources->stop_consumers) {
+        usleep((rand() % 1000) * 1000);  // Random delay
         int item;
-        remove_item(&item);
 
-        // Release mutex
-        pthread_mutex_unlock(&buffer_mutex);
+        sem_wait(&resources->slots_occupied);
+        pthread_mutex_lock(&resources->buffer_mutex);
 
-        // Release empty semaphore
-        sem_post(&empty);
+        if (buffer.fetch(item)) {  // Fetch item from buffer
+            std::cout << "Consumed item: " << item << std::endl;
+        }
 
-        // This process the item (e.g., print or use it)
-        std::cout << "Consumed item: " << item << std::endl;
-    
+        pthread_mutex_unlock(&resources->buffer_mutex);
+        sem_post(&resources->slots_available);
     }
-    return NULL;
+    return nullptr;
 }
-
-
-
-
-
-// Define a struct to hold thread execution times
-    struct ThreadExecutionTime {
-    std::chrono::steady_clock::time_point start;
-    std::chrono::steady_clock::time_point end;
-};
-
-    // Vector to store execution times for each thread
-    std::vector<ThreadExecutionTime> producer_execution_times(PRODUCER_COUNT);
-    std::vector<ThreadExecutionTime> consumer_execution_times(CONSUMER_COUNT);
-
-
-
 
 int main(int argc, char *argv[]) {
     if (argc != 2) {
@@ -137,98 +105,60 @@ int main(int argc, char *argv[]) {
         return 1;
     }
 
-    std::ifstream input_file(argv[1]);
-    if (!input_file) {
+    std::ifstream input_config(argv[1]);
+    if (!input_config) {
         std::cerr << "Error opening input file." << std::endl;
         return 1;
     }
 
-    int wait_time, producers, consumers;
-    input_file >> wait_time >> producers >> consumers;
-    input_file.close();
+    int simulation_duration, producer_count, consumer_count;
+    input_config >> simulation_duration >> producer_count >> consumer_count;
+    input_config.close();
 
-    // Initializes the semaphores and mutex
-    sem_init(&empty, 0, BUFFER_SIZE);
-    sem_init(&full, 0, 0);
-    pthread_mutex_init(&buffer_mutex, NULL);
+    SharedResources resources;
+    CircularBuffer buffer;
 
-    pthread_mutex_destroy(&buffer_mutex);
+    std::vector<pthread_t> producer_threads(producer_count);
+    std::vector<pthread_t> consumer_threads(consumer_count);
 
-    
-    
+    // Start timer
+    auto start_time = std::chrono::steady_clock::now();
 
+    // Create producer and consumer threads
+    for (int i = 0; i < producer_count; ++i) {
+        pthread_create(&producer_threads[i], nullptr, producer, &resources);
+    }
+    for (int i = 0; i < consumer_count; ++i) {
+        pthread_create(&consumer_threads[i], nullptr, consumer, &resources);
+    }
 
-    // Before creating threads, capture the start time
-    auto program_start = std::chrono::steady_clock::now();
+    // Run for the specified duration
+    std::this_thread::sleep_for(std::chrono::seconds(simulation_duration));
 
-    // Creates the producer and consumer threads
-    pthread_t producer_threads[PRODUCER_COUNT];
-    pthread_t consumer_threads[CONSUMER_COUNT];
+    // Stop producers and consumers
+    resources.stop_producers = true;
+    resources.stop_consumers = true;
 
-    for (int i = 0; i < PRODUCER_COUNT; ++i)
-        pthread_create(&producer_threads[i], NULL, producer, NULL);
+    // Wait for threads to finish
+    for (auto &thread : producer_threads) {
+        pthread_join(thread, nullptr);
+    }
+    for (auto &thread : consumer_threads) {
+        pthread_join(thread, nullptr);
+    }
 
-    for (int i = 0; i < CONSUMER_COUNT; ++i)
-        pthread_create(&consumer_threads[i], NULL, consumer, NULL);
+    // Calculate execution time
+    auto end_time = std::chrono::steady_clock::now();
+    auto elapsed_time = std::chrono::duration_cast<std::chrono::seconds>(end_time - start_time).count();
 
-    // Sleep for a period of time
-    std::this_thread::sleep_for(std::chrono::seconds(10));
-
-
-    // Added a termination code
-
-    // Set termination flags
-    terminate_producers = true;
-    terminate_consumers = true;
-
-
-    // Wait for the threads to finish
-    for (int i = 0; i < PRODUCER_COUNT; ++i)
-        pthread_join(producer_threads[i], NULL);
-
-    for (int i = 0; i < CONSUMER_COUNT; ++i)
-        pthread_join(consumer_threads[i], NULL);
-
-
-
-    // After all threads finish, capture the end time
-    auto program_end = std::chrono::steady_clock::now();
-
-    auto duration = program_end - program_start;
-
-    // Calculate overall turnaround time
-    auto duration_seconds = std::chrono::duration_cast<std::chrono::seconds>(program_end - program_start).count();
-
-
-    
-
-
-
-// ... (existing code for thread creations and other operations)
-
-
-    
-
-
-    // Write to output file
-    std::ofstream output_file("output- " + std::to_string(wait_time) + "sec-wait.txt");
-    if (!output_file) {
+    // Write results to output file
+    std::ofstream results_file("output-" + std::to_string(simulation_duration) + "sec-wait.txt");
+    if (results_file) {
+        results_file << "Turnaround time: " << elapsed_time << " seconds" << std::endl;
+    } else {
         std::cerr << "Error creating output file." << std::endl;
         return 1;
     }
 
-    output_file << "Turnaround time: " << duration_seconds << " seconds" << std::endl;
-
-    output_file.close();
-
-    return 0;   
-
+    return 0;
 }
-
-
-
-
-
-
-
-

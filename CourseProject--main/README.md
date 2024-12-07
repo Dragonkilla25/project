@@ -1,2 +1,2 @@
 # CourseProject-
-CS571 CourseProject 
+CS471 CourseProject 
