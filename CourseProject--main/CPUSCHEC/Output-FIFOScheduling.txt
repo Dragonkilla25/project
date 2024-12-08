@@ -1,10 +1,9 @@
 FIFO Scheduling Statistics:
 Number of processes: 500
-Total elapsed time: 2139393772 CPU burst units
-Throughput: -1.98918e+06 processes executed in one unit of CPU burst time
-CPU utilization: -46.4893%
--46.4893%
-Average waiting time: 3.93816e+06 CPU burst times
-Average turnaround time: 1.94898e+06 CPU burst times
-Average response time: 3.93816e+06 CPU burst times
+Total elapsed time: 14744 CPU burst units
+Throughput: 29.488 processes executed in one unit of CPU burst time
+CPU utilization: 71.6088%
+Average waiting time: 17.884 CPU burst times
+Average turnaround time: 39 CPU burst times
+Average response time: 17.884 CPU burst times
 ------------------------------------------
